@@ -1,133 +1,123 @@
-import NextAuth, { type NextAuthOptions } from "next-auth";
-import GoogleProvider from "next-auth/providers/google";
-import LinkedInProvider from "next-auth/providers/linkedin";
-import EmailProvider from "next-auth/providers/email";
-import { PasskeyProvider } from "@teamhanko/passkeys-next-auth-provider";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import bcrypt from "bcryptjs";
+import NextAuth, { type NextAuthOptions } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
+
 import prisma from "@/lib/prisma";
-import { CreateUserEmailProps, CustomUser } from "@/lib/types";
-import { sendWelcomeEmail } from "@/lib/emails/send-welcome";
-import { identifyUser, trackAnalytics } from "@/lib/analytics";
-import { sendVerificationRequestEmail } from "@/lib/emails/send-verification-request";
-import hanko from "@/lib/hanko";
+import { CustomUser } from "@/lib/types";
 
-const VERCEL_DEPLOYMENT = !!process.env.VERCEL_URL;
+const secureCookies = process.env.NEXTAUTH_URL?.startsWith("https://") ?? false;
 
-// This function can run for a maximum of 180 seconds
+function getAdminCredentials() {
+  const email = process.env.AUTH_ADMIN_EMAIL?.trim().toLowerCase();
+  const passwordHash = process.env.AUTH_ADMIN_PASSWORD_HASH;
+
+  if (!email || !passwordHash) {
+    throw new Error(
+      "AUTH_ADMIN_EMAIL and AUTH_ADMIN_PASSWORD_HASH must be configured",
+    );
+  }
+
+  return { email, passwordHash };
+}
+
 export const config = {
   maxDuration: 180,
 };
 
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
   pages: {
     error: "/login",
+    signIn: "/login",
   },
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID as string,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-      allowDangerousEmailAccountLinking: true,
-    }),
-    LinkedInProvider({
-      clientId: process.env.LINKEDIN_CLIENT_ID as string,
-      clientSecret: process.env.LINKEDIN_CLIENT_SECRET as string,
-      authorization: {
-        params: { scope: "openid profile email" },
+    CredentialsProvider({
+      name: "Administrator credentials",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
       },
-      issuer: "https://www.linkedin.com/oauth",
-      jwks_endpoint: "https://www.linkedin.com/oauth/openid/jwks",
-      profile(profile, tokens) {
-        const defaultImage =
-          "https://cdn-icons-png.flaticon.com/512/174/174857.png";
-        return {
-          id: profile.sub,
-          name: profile.name,
-          email: profile.email,
-          image: profile.picture ?? defaultImage,
-        };
-      },
-      allowDangerousEmailAccountLinking: true,
-    }),
-    EmailProvider({
-      async sendVerificationRequest({ identifier, url }) {
-        if (process.env.NODE_ENV === "development") {
-          console.log("[Login URL]", url);
-          return;
-        } else {
-          await sendVerificationRequestEmail({
-            url,
-            email: identifier,
-          });
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials.password) {
+          return null;
         }
-      },
-    }),
-    PasskeyProvider({
-      tenant: hanko,
-      async authorize({ userId }) {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        if (!user) return null;
+
+        const { email: adminEmail, passwordHash } = getAdminCredentials();
+        const email = credentials.email.trim().toLowerCase();
+        const passwordMatches = await bcrypt.compare(
+          credentials.password,
+          passwordHash,
+        );
+
+        if (email !== adminEmail || !passwordMatches) {
+          return null;
+        }
+
+        const user = await prisma.user.upsert({
+          where: { email: adminEmail },
+          create: {
+            email: adminEmail,
+            emailVerified: new Date(),
+            name: "Administrator",
+          },
+          update: {
+            emailVerified: new Date(),
+          },
+        });
+
+        await prisma.team.updateMany({
+          where: {
+            users: {
+              some: {
+                userId: user.id,
+                role: "ADMIN",
+              },
+            },
+          },
+          data: {
+            plan: "business",
+          },
+        });
+
         return user;
       },
     }),
   ],
-  adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
   cookies: {
     sessionToken: {
-      name: `${VERCEL_DEPLOYMENT ? "__Secure-" : ""}next-auth.session-token`,
+      name: `${secureCookies ? "__Secure-" : ""}next-auth.session-token`,
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        // When working on localhost, the cookie domain must be omitted entirely (https://stackoverflow.com/a/1188145)
-        domain: VERCEL_DEPLOYMENT ? ".papermark.io" : undefined,
-        secure: VERCEL_DEPLOYMENT,
+        secure: secureCookies,
       },
     },
   },
   callbacks: {
     jwt: async ({ token, user }) => {
-      if (!token.email) {
-        return {};
-      }
       if (user) {
         token.user = user;
       }
       return token;
     },
     session: async ({ session, token }) => {
+      if (!token.sub || !token.email) {
+        return session;
+      }
+
       (session.user as CustomUser) = {
         id: token.sub,
-        // @ts-ignore
-        ...(token || session).user,
-      };
+        email: token.email,
+        name: token.name,
+        image: token.picture,
+        ...(typeof token.user === "object" && token.user !== null
+          ? token.user
+          : {}),
+      } as CustomUser;
       return session;
-    },
-  },
-  events: {
-    async createUser(message) {
-      const params: CreateUserEmailProps = {
-        user: {
-          name: message.user.name,
-          email: message.user.email,
-        },
-      };
-
-      await identifyUser(message.user.email ?? message.user.id);
-      await trackAnalytics({
-        event: "User Signed Up",
-        email: message.user.email,
-        userId: message.user.id,
-      });
-
-      await sendWelcomeEmail(params);
-    },
-    async signIn(message) {
-      await identifyUser(message.user.email ?? message.user.id);
-      await trackAnalytics({
-        event: "User Signed In",
-        email: message.user.email,
-      });
     },
   },
 };

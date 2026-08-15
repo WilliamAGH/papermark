@@ -18,8 +18,7 @@ export default async function DomainMiddleware(req: NextRequest) {
     // >>> Rewriting: ${path} to /view/domains/${host}${path}`
     url.pathname = `/view/domains/${host}${path}`;
     return NextResponse.rewrite(url, PAPERMARK_HEADERS);
-  } else {
-    // redirect plain custom domain to papermark.io, eventually to it's own landing page
-    return NextResponse.redirect(new URL("https://www.papermark.io", req.url));
   }
+
+  return NextResponse.next();
 }

@@ -4,7 +4,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import { useTeam } from "@/context/team-context";
 import Nav from "./nav";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 export default function PDFViewer(props: any) {
   const [numPages, setNumPages] = useState<number>(0);

@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { log } from "@/lib/utils";
 import { sendDataroomViewerInvite } from "@/lib/emails/send-dataroom-viewer-invite";
+import { hasValidInternalApiKey } from "@/lib/api/internal-api-auth";
 
 export const config = {
   maxDuration: 120,
@@ -17,12 +18,7 @@ export default async function handle(
     return;
   }
 
-  // Extract the API Key from the Authorization header
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(" ")[1]; // Assuming the format is "Bearer [token]"
-
-  // Check if the API Key matches
-  if (token !== process.env.INTERNAL_API_KEY) {
+  if (!hasValidInternalApiKey(req)) {
     res.status(401).json({ message: "Unauthorized" });
     return;
   }

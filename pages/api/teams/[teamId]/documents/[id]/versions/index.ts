@@ -5,8 +5,10 @@ import { log } from "@/lib/utils";
 import { authOptions } from "@/pages/api/auth/[...nextauth]";
 import { CustomUser } from "@/lib/types";
 import { getTeamWithUsersAndDocument } from "@/lib/team/helper";
-import { client } from "@/trigger";
 import { DocumentStorageType } from "@prisma/client";
+import { processDocumentVersion } from "@/lib/documents/process-document-version";
+
+export const config = { maxDuration: 300 };
 
 export default async function handle(
   req: NextApiRequest,
@@ -47,6 +49,7 @@ export default async function handle(
               take: 1,
               select: { versionNumber: true },
             },
+            links: { select: { id: true } },
           },
         },
       });
@@ -76,22 +79,28 @@ export default async function handle(
           type: type,
           storageType,
           numPages: numPages,
-          isPrimary: true,
+          isPrimary: false,
           versionNumber: currentVersionNumber + 1,
         },
       });
 
-      // trigger document uploaded event to trigger convert-pdf-to-image job
-      await client.sendEvent({
-        id: version.id,
-        name: "document.uploaded",
-        payload: {
+      try {
+        await processDocumentVersion({
           documentVersionId: version.id,
-          versionNumber: version.versionNumber,
-          documentId: documentId,
-          teamId: teamId,
-        },
-      });
+          documentId,
+          teamId,
+        });
+        await Promise.allSettled(
+          (document?.links ?? []).map((link) =>
+            res.revalidate(`/view/${link.id}`),
+          ),
+        );
+      } catch (processingError) {
+        await prisma.documentVersion.delete({ where: { id: version.id } });
+        throw new Error(
+          `Document processing failed: ${(processingError as Error).message}`,
+        );
+      }
 
       res.status(200).json({ id: documentId });
     } catch (error) {

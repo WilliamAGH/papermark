@@ -62,6 +62,10 @@ export type Fields = {
 };
 
 const getInvestors = async () => {
+  if (!process.env.AIRTABLE_API_KEY) {
+    return { records: [] };
+  }
+
   const response = await fetch(
     "https://api.airtable.com/v0/appAxYMTCbZ1hGTmg/tblvBs5aqTt8qkb6h?fields%5B%5D=name&fields%5B%5D=title&fields%5B%5D=company&fields%5B%5D=checkSize&fields%5B%5D=openSourceInvestments&fields%5B%5D=twitterUrl&fields%5B%5D=websiteUrl&fields%5B%5D=twitterImageUrl&filterByFormula=AND(%7Bpublished%7D%3D1%2C%7Btype%7D%3D%22Angel%22)",
     {

@@ -1,9 +1,8 @@
-import { Check, Loader, PlusIcon } from "lucide-react";
+import { Check, Loader } from "lucide-react";
 import { TeamContextType, useTeam } from "@/context/team-context";
 import { ChevronsUpDown as ChevronUpDownIcon } from "lucide-react";
 import { Team } from "@/lib/types";
 import { useRouter } from "next/router";
-import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -72,14 +71,6 @@ const SelectTeam = ({ teams, currentTeam, isLoading }: TeamContextType) => {
                 )}
               </div>
             ))}
-
-            <Link
-              href="/settings/people"
-              className="w-[92%] mx-auto mb-1 mt-3 flex items-center text-sm rounded-sm border px-[10px] py-2 hover:bg-gray-200 hover:dark:bg-gray-800 duration-100 hover:cursor-pointer"
-            >
-              <PlusIcon className="h-4 w-4 mr-2" />
-              Invite Members
-            </Link>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

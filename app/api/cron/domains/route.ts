@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { receiver } from "@/lib/cron";
+import { hasValidInternalApiKey } from "@/lib/api/internal-api-auth";
 import { handleDomainUpdates } from "./utils";
 import {
   getConfigResponse,
@@ -20,15 +20,8 @@ import { log } from "@/lib/utils";
 export const maxDuration = 300; // 5 minutes in seconds
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  if (process.env.VERCEL === "1") {
-    const isValid = await receiver.verify({
-      signature: req.headers.get("Upstash-Signature") || "",
-      body: JSON.stringify(body),
-    });
-    if (!isValid) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  if (!hasValidInternalApiKey(req)) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
   try {
@@ -116,7 +109,7 @@ export async function POST(req: Request) {
     await log({
       message: `Domains cron failed. \n\nError: ${(error as Error).message}`,
       type: "cron",
-      mention: true
+      mention: true,
     });
     return NextResponse.json({ error: (error as Error).message });
   }

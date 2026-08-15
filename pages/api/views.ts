@@ -16,30 +16,13 @@ export default async function handle(
     return;
   }
   // POST /api/views
-  const {
-    linkId,
-    documentId,
-    userId,
-    documentVersionId,
-    documentName,
-    hasPages,
-    token,
-    ownerId,
-    verifiedEmail,
-    ...data
-  } = req.body as {
+  const { linkId, token, verifiedEmail, email, password } = req.body as {
     linkId: string;
-    documentId: string;
-    userId: string | null;
-    documentVersionId: string;
-    documentName: string;
-    hasPages: boolean;
     token: string | null;
-    ownerId: string;
     verifiedEmail: string | null;
+    email: string;
+    password: string;
   };
-
-  const { email, password } = data as { email: string; password: string };
 
   // Fetch the link to verify the settings
   const link = await prisma.link.findUnique({
@@ -56,6 +39,31 @@ export default async function handle(
       slug: true,
       allowList: true,
       denyList: true,
+      linkType: true,
+      document: {
+        select: {
+          id: true,
+          versions: {
+            where: { isPrimary: true },
+            orderBy: { versionNumber: "desc" },
+            take: 1,
+            select: {
+              file: true,
+              storageType: true,
+              hasPages: true,
+              pages: {
+                orderBy: { pageNumber: "asc" },
+                select: {
+                  file: true,
+                  storageType: true,
+                  pageNumber: true,
+                  embeddedLinks: true,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   });
 
@@ -66,6 +74,13 @@ export default async function handle(
 
   if (link.isArchived) {
     res.status(404).json({ message: "Link is no longer available." });
+    return;
+  }
+
+  const document = link.document;
+  const documentVersion = document?.versions[0];
+  if (link.linkType !== "DOCUMENT_LINK" || !document || !documentVersion) {
+    res.status(404).json({ message: "Document not found." });
     return;
   }
 
@@ -197,7 +212,7 @@ export default async function handle(
       data: {
         linkId: linkId,
         viewerEmail: email,
-        documentId: documentId,
+        documentId: document.id,
         verified: isEmailVerified,
       },
       select: { id: true },
@@ -206,24 +221,13 @@ export default async function handle(
 
     // if document version has pages, then return pages
     // otherwise, return file from document version
-    let documentPages, documentVersion;
+    let documentPages;
     // let documentPagesPromise, documentVersionPromise;
-    if (hasPages) {
+    if (documentVersion.hasPages) {
       // get pages from document version
       console.time("get-pages");
-      documentPages = await prisma.documentPage.findMany({
-        where: { versionId: documentVersionId },
-        orderBy: { pageNumber: "asc" },
-        select: {
-          file: true,
-          storageType: true,
-          pageNumber: true,
-          embeddedLinks: true,
-        },
-      });
-
       documentPages = await Promise.all(
-        documentPages.map(async (page) => {
+        documentVersion.pages.map(async (page) => {
           const { storageType, ...otherPage } = page;
           return {
             ...otherPage,
@@ -236,19 +240,6 @@ export default async function handle(
     } else {
       // get file from document version
       console.time("get-file");
-      documentVersion = await prisma.documentVersion.findUnique({
-        where: { id: documentVersionId },
-        select: {
-          file: true,
-          storageType: true,
-        },
-      });
-
-      if (!documentVersion) {
-        res.status(404).json({ message: "Document version not found." });
-        return;
-      }
-
       documentVersion.file = await getFile({
         data: documentVersion.file,
         type: documentVersion.storageType,
@@ -265,7 +256,7 @@ export default async function handle(
     const returnObject = {
       message: "View recorded",
       viewId: newView.id,
-      file: documentVersion ? documentVersion.file : null,
+      file: documentVersion.hasPages ? null : documentVersion.file,
       pages: documentPages ? documentPages : null,
     };
 

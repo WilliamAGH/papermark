@@ -1,0 +1,229 @@
+services:
+  app:
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_PUBLIC_BASE_URL: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
+        NEXT_PUBLIC_ROOT_DOMAIN: ${PAPERMARK_PUBLIC_HOST:?Set PAPERMARK_PUBLIC_HOST}
+        NEXT_PUBLIC_SOURCE_URL: ${PAPERMARK_SOURCE_URL:?Set PAPERMARK_SOURCE_URL}
+        PAPERMARK_STORAGE_ENDPOINT: ${PAPERMARK_STORAGE_ENDPOINT:?Set PAPERMARK_STORAGE_ENDPOINT}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
+      AUTH_ADMIN_EMAIL: ${AUTH_ADMIN_EMAIL:?Set AUTH_ADMIN_EMAIL}
+      AUTH_ADMIN_PASSWORD_HASH: ${AUTH_ADMIN_PASSWORD_HASH:?Set AUTH_ADMIN_PASSWORD_HASH}
+      APP_BASE_HOSTS: ${APP_BASE_HOSTS:?Set APP_BASE_HOSTS}
+      NEXT_PUBLIC_BASE_URL: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
+      NEXT_PUBLIC_ROOT_DOMAIN: ${PAPERMARK_PUBLIC_HOST:?Set PAPERMARK_PUBLIC_HOST}
+      NEXT_PUBLIC_SOURCE_URL: ${PAPERMARK_SOURCE_URL:?Set PAPERMARK_SOURCE_URL}
+      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?Set POSTGRES_PRISMA_URL}
+      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?Set POSTGRES_PRISMA_URL_NON_POOLING}
+      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?Set POSTGRES_PRISMA_SHADOW_URL}
+      NEXT_PUBLIC_UPLOAD_TRANSPORT: s3
+      PAPERMARK_STORAGE_ENDPOINT: ${PAPERMARK_STORAGE_ENDPOINT:?Set PAPERMARK_STORAGE_ENDPOINT}
+      NEXT_PRIVATE_UPLOAD_ENDPOINT: http://minio:9000
+      NEXT_PRIVATE_UPLOAD_REGION: ${MINIO_REGION_NAME:-us-east-1}
+      NEXT_PRIVATE_UPLOAD_BUCKET: ${MINIO_BUCKET:?Set MINIO_BUCKET}
+      NEXT_PRIVATE_UPLOAD_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      NEXT_PRIVATE_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
+      UPSTASH_REDIS_REST_URL: http://redis-http:80
+      UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN:?Set SRH_TOKEN}
+      NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY: ${NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY:?Set NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY}
+      REVALIDATE_TOKEN: ${REVALIDATE_TOKEN:?Set REVALIDATE_TOKEN}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      QSTASH_TOKEN: ${QSTASH_TOKEN:-}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
+      QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis-http:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/api/health').then(response=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    restart: "no"
+    environment:
+      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?Set POSTGRES_PRISMA_URL}
+      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?Set POSTGRES_PRISMA_URL_NON_POOLING}
+      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?Set POSTGRES_PRISMA_SHADOW_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16.15-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-papermark}
+      POSTGRES_USER: ${POSTGRES_USER:-papermark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7.4.10-bookworm
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command:
+      - /bin/sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  redis-http:
+    image: hiett/serverless-redis-http:0.0.10
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${SRH_TOKEN:?Set SRH_TOKEN}
+      SRH_CONNECTION_STRING: redis://default:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379
+      SRH_MAX_CONNECTIONS: "10"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -qO- --header="Authorization: Bearer $$SRH_TOKEN"
+          --header="Content-Type: application/json" --post-data='["PING"]'
+          http://127.0.0.1:80 | grep -q PONG
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    expose:
+      - "9000"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MINIO_REGION_NAME: ${MINIO_REGION_NAME:-us-east-1}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://127.0.0.1:9000/minio/health/live
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - |
+        set -eu
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc ready local >/dev/null
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+        mc anonymous set none "local/$${MINIO_BUCKET}"
+        # Both commands reconcile an existing name, including rotated credentials
+        # and policy content, so a retained MinIO volume is safe to initialize again.
+        mc admin user add local "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}"
+        mc admin policy create local papermark /etc/minio/papermark-policy.json
+        mc admin policy attach local papermark --user "$${MINIO_ACCESS_KEY}"
+        mc stat "local/$${MINIO_BUCKET}" >/dev/null
+        mc admin user info local "$${MINIO_ACCESS_KEY}" >/dev/null
+        mc admin policy info local papermark >/dev/null
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:?Set MINIO_BUCKET}
+    configs:
+      - source: minio-policy
+        target: /etc/minio/papermark-policy.json
+    depends_on:
+      minio:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+
+configs:
+  minio-policy:
+    content: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetBucketLocation",
+              "s3:ListBucket",
+              "s3:ListBucketMultipartUploads"
+            ],
+            "Resource": ["arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}"]
+          },
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:AbortMultipartUpload",
+              "s3:DeleteObject",
+              "s3:GetObject",
+              "s3:ListMultipartUploadParts",
+              "s3:PutObject"
+            ],
+            "Resource": ["arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}/*"]
+          }
+        ]
+      }

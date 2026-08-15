@@ -38,7 +38,6 @@ import { toast } from "sonner";
 import { useRouter } from "next/router";
 import { usePlan } from "@/lib/swr/use-billing";
 import { useTeam } from "@/context/team-context";
-import ProcessStatusBar from "../documents/process-status-bar";
 import { Settings2Icon } from "lucide-react";
 import { DocumentVersion } from "@prisma/client";
 
@@ -193,16 +192,6 @@ export default function LinksTable({
                                   : "bg-secondary hover:bg-emerald-700 hover:dark:bg-emerald-200",
                               )}
                             >
-                              {/* Progress bar */}
-                              {primaryVersion &&
-                              primaryVersion.type !== "notion" &&
-                              !primaryVersion.hasPages ? (
-                                <ProcessStatusBar
-                                  documentVersionId={primaryVersion.id}
-                                  className="absolute z-20 top-0 left-0 right-0 bottom-0 h-full gap-x-8 flex items-center"
-                                />
-                              ) : null}
-
                               <div className="whitespace-nowrap w-full flex text-xs md:text-sm group-hover/cell:opacity-0">
                                 {link.domainId
                                   ? `https://${link.domainSlug}/${link.slug}`

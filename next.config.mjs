@@ -1,19 +1,17 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
+  outputFileTracingRoot: process.cwd(),
+  outputFileTracingIncludes: {
+    "/api/mupdf/*": ["./node_modules/mupdf/lib/*.wasm"],
+  },
   pageExtensions: ["js", "jsx", "ts", "tsx", "mdx"],
   images: {
     minimumCacheTTL: 2592000, // 30 days
     remotePatterns: prepareRemotePatterns(),
   },
-  transpilePackages: ["@trigger.dev/react"],
   skipTrailingSlashRedirect: true,
-  experimental: {
-    outputFileTracingIncludes: {
-      "/api/mupdf/*": ["./node_modules/mupdf/lib/*.wasm"],
-    },
-    missingSuspenseWithCSRBailout: false,
-  },
   async redirects() {
     return [
       {
@@ -52,6 +50,15 @@ function prepareRemotePatterns() {
     patterns.push({
       protocol: "https",
       hostname: process.env.NEXT_PRIVATE_UPLOAD_DISTRIBUTION_HOST,
+    });
+  }
+
+  if (process.env.PAPERMARK_STORAGE_ENDPOINT) {
+    const storageEndpoint = new URL(process.env.PAPERMARK_STORAGE_ENDPOINT);
+    patterns.push({
+      protocol: storageEndpoint.protocol.slice(0, -1),
+      hostname: storageEndpoint.hostname,
+      port: storageEndpoint.port,
     });
   }
 

@@ -145,8 +145,7 @@ export default function NotionForm() {
     if (linkData.metaImage && linkData.metaImage.startsWith("data:")) {
       // Convert the data URL to a blob
       const blob = convertDataUrlToFile({ dataUrl: linkData.metaImage });
-      // Upload the blob to vercel storage
-      blobUrl = await uploadImage(blob);
+      blobUrl = await uploadImage(blob, teamInfo?.currentTeam?.id as string);
       setLinkData({ ...linkData, metaImage: blobUrl });
     }
 

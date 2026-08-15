@@ -9,20 +9,16 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { useDocumentLinks } from "@/lib/swr/use-document";
-import { useDomains } from "@/lib/swr/use-domains";
 import { mutate } from "swr";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { convertDataUrlToFile, uploadImage } from "@/lib/utils";
-import DomainSection from "./domain-section";
 import { useTeam } from "@/context/team-context";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LinkOptions } from "./link-options";
 import { useAnalytics } from "@/lib/analytics";
 import { LinkWithViews } from "@/lib/types";
-import { usePlan } from "@/lib/swr/use-billing";
 
 export const DEFAULT_LINK_PROPS = {
   id: null,
@@ -85,9 +81,7 @@ export default function LinkSheet({
   currentLink?: DEFAULT_LINK_TYPE;
   existingLinks?: LinkWithViews[];
 }) {
-  const { domains } = useDomains();
   const teamInfo = useTeam();
-  const { plan } = usePlan();
   const analytics = useAnalytics();
   const [data, setData] = useState<DEFAULT_LINK_TYPE>(DEFAULT_LINK_PROPS);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -112,8 +106,7 @@ export default function LinkSheet({
     if (data.metaImage && data.metaImage.startsWith("data:")) {
       // Convert the data URL to a blob
       const blob = convertDataUrlToFile({ dataUrl: data.metaImage });
-      // Upload the blob to vercel storage
-      blobUrl = await uploadImage(blob);
+      blobUrl = await uploadImage(blob, teamInfo?.currentTeam?.id as string);
       setData({ ...data, metaImage: blobUrl });
     }
 
@@ -224,15 +217,6 @@ export default function LinkSheet({
                         />
                       </div>
                     </div>
-
-                    <div className="space-y-2">
-                      <DomainSection
-                        {...{ data, setData, domains }}
-                        plan={plan}
-                        linkType={linkType}
-                      />
-                    </div>
-
                     <div className="flex items-center relative">
                       <Separator className="bg-muted-foreground absolute" />
                       <div className="relative mx-auto">

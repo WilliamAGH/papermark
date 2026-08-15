@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { customAlphabet } from "nanoid";
 import { ThreadMessage } from "openai/resources/beta/threads/messages/messages";
 import { Message } from "ai";
-import { upload } from "@vercel/blob/client";
 import crypto from "crypto";
 
 export function cn(...inputs: ClassValue[]) {
@@ -418,13 +417,28 @@ export const convertDataUrlToFile = ({
   return new File([u8arr], filename, { type: mime });
 };
 
-export const uploadImage = async (file: File) => {
-  const newBlob = await upload(file.name, file, {
-    access: "public",
-    handleUploadUrl: "/api/file/logo-upload",
-  });
+export const uploadImage = async (file: File, teamId: string) => {
+  if (!teamId) {
+    throw new Error("A team is required to upload an image");
+  }
 
-  return newBlob.url;
+  const response = await fetch(
+    `/api/file/logo-upload?teamId=${encodeURIComponent(teamId)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type,
+      },
+      body: file,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const { url } = (await response.json()) as { url: string };
+  return url;
 };
 
 /**

@@ -201,10 +201,6 @@ export type AnalyticsEvents =
       slug: string;
     }
   | {
-      event: "Team Member Invitation Accepted";
-      teamId: string;
-    }
-  | {
       event: "Stripe Checkout Clicked";
       teamId: string;
       priceId: string;

@@ -14,6 +14,17 @@ function isAnalyticsPath(path: string) {
   return pattern.test(path);
 }
 
+function normalizeHost(host: string | null): string {
+  return host?.trim().toLowerCase().split(":", 1)[0] ?? "";
+}
+
+function getAppBaseHosts(): string[] {
+  return (process.env.APP_BASE_HOSTS ?? "")
+    .split(",")
+    .map((host) => normalizeHost(host))
+    .filter(Boolean);
+}
+
 export const config = {
   matcher: [
     /*
@@ -31,20 +42,30 @@ export const config = {
 export default async function middleware(req: NextRequest, ev: NextFetchEvent) {
   const path = req.nextUrl.pathname;
   const host = req.headers.get("host");
+  const requestHost = normalizeHost(host);
+  const appBaseHosts = getAppBaseHosts();
+  const appHostIndex = appBaseHosts.indexOf(requestHost);
+
+  if (appHostIndex > 0) {
+    const canonicalUrl = req.nextUrl.clone();
+    canonicalUrl.hostname = appBaseHosts[0];
+    canonicalUrl.port = "";
+    canonicalUrl.protocol = process.env.NEXTAUTH_URL?.startsWith("http://")
+      ? "http:"
+      : "https:";
+    return NextResponse.redirect(canonicalUrl, 308);
+  }
 
   if (isAnalyticsPath(path)) {
     return PostHogMiddleware(req);
   }
 
-  if (
-    (process.env.NODE_ENV === "development" && host?.includes(".local")) ||
-    (process.env.NODE_ENV !== "development" &&
-      !(
-        host?.includes("localhost") ||
-        host?.includes("papermark.io") ||
-        host?.endsWith(".vercel.app")
-      ))
-  ) {
+  const isDevelopmentAppHost =
+    process.env.NODE_ENV === "development" &&
+    (requestHost === "localhost" || requestHost.endsWith(".local"));
+  const isConfiguredAppHost = appHostIndex === 0;
+
+  if (!isDevelopmentAppHost && !isConfiguredAppHost) {
     return DomainMiddleware(req);
   }
 

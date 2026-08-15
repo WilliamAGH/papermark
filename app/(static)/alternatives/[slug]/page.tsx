@@ -20,12 +20,13 @@ export async function generateStaticParams() {
 export const generateMetadata = async ({
   params,
 }: {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 }): Promise<Metadata> => {
+  const { slug } = await params;
   const alternative = (await getAlternatives()).find(
-    (alternative) => alternative.slug === params.slug,
+    (alternative) => alternative.slug === slug,
   );
   const { metatitle, metadescription } = alternative || {};
 
@@ -38,9 +39,10 @@ export const generateMetadata = async ({
 export default async function AlternativePage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const alternative = await getAlternative(params.slug);
+  const { slug } = await params;
+  const alternative = await getAlternative(slug);
   if (!alternative) return notFound();
 
   return (

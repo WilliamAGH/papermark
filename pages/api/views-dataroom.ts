@@ -4,10 +4,8 @@ import { checkPassword, decryptEncrpytedPassword, log } from "@/lib/utils";
 import { newId } from "@/lib/id-helper";
 import { sendVerificationEmail } from "@/lib/emails/send-email-verification";
 import { getFile } from "@/lib/files/get-file";
-import sendNotification from "@/lib/api/notification-helper";
 import { parsePageId } from "notion-utils";
 import notion from "@/lib/notion";
-import { record } from "zod";
 
 export default async function handle(
   req: NextApiRequest,
@@ -22,35 +20,22 @@ export default async function handle(
   const {
     linkId,
     documentId,
-    dataroomId,
-    userId,
-    documentVersionId,
-    documentName,
-    hasPages,
     token,
-    ownerId,
     verifiedEmail,
-    linkType,
     dataroomViewId,
     viewType,
-    ...data
+    email,
+    password,
   } = req.body as {
     linkId: string;
     documentId: string | undefined;
-    dataroomId: string | undefined;
-    userId: string | null;
-    documentVersionId: string | undefined;
-    documentName: string | undefined;
-    hasPages: boolean | undefined;
     token: string | null;
-    ownerId: string | null;
     verifiedEmail: string | null;
-    linkType: string;
     dataroomViewId?: string;
     viewType: "DATAROOM_VIEW" | "DOCUMENT_VIEW";
+    email: string;
+    password: string;
   };
-
-  const { email, password } = data as { email: string; password: string };
 
   // Fetch the link to verify the settings
   const link = await prisma.link.findUnique({
@@ -67,6 +52,8 @@ export default async function handle(
       slug: true,
       allowList: true,
       denyList: true,
+      linkType: true,
+      dataroom: { select: { id: true } },
     },
   });
 
@@ -77,6 +64,16 @@ export default async function handle(
 
   if (link.isArchived) {
     res.status(404).json({ message: "Link is no longer available." });
+    return;
+  }
+
+  const dataroom = link.dataroom;
+  if (!dataroom || link.linkType !== "DATAROOM_LINK") {
+    res.status(404).json({ message: "Dataroom not found." });
+    return;
+  }
+  if (viewType !== "DATAROOM_VIEW" && viewType !== "DOCUMENT_VIEW") {
+    res.status(400).json({ message: "Invalid view type." });
     return;
   }
 
@@ -202,6 +199,53 @@ export default async function handle(
     isEmailVerified = true;
   }
 
+  const dataroomDocument =
+    viewType === "DOCUMENT_VIEW" && documentId
+      ? await prisma.dataroomDocument.findUnique({
+          where: {
+            dataroomId_documentId: {
+              dataroomId: dataroom.id,
+              documentId,
+            },
+          },
+          select: {
+            document: {
+              select: {
+                id: true,
+                versions: {
+                  where: { isPrimary: true },
+                  orderBy: { versionNumber: "desc" },
+                  take: 1,
+                  select: {
+                    file: true,
+                    storageType: true,
+                    type: true,
+                    hasPages: true,
+                    pages: {
+                      orderBy: { pageNumber: "asc" },
+                      select: {
+                        file: true,
+                        storageType: true,
+                        pageNumber: true,
+                        embeddedLinks: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        })
+      : null;
+
+  if (
+    viewType === "DOCUMENT_VIEW" &&
+    (!dataroomDocument || !dataroomDocument.document.versions[0])
+  ) {
+    res.status(404).json({ message: "Document not found in dataroom." });
+    return;
+  }
+
   let viewer: { id: string } | null = null;
   if (email) {
     // find or create a viewer
@@ -210,7 +254,7 @@ export default async function handle(
       where: {
         dataroomId_email: {
           email: email,
-          dataroomId: dataroomId!,
+          dataroomId: dataroom.id,
         },
       },
       select: { id: true },
@@ -222,7 +266,7 @@ export default async function handle(
       viewer = await prisma.viewer.create({
         data: {
           email: email,
-          dataroomId: dataroomId!,
+          dataroomId: dataroom.id,
           verified: isEmailVerified,
         },
         select: { id: true },
@@ -236,6 +280,24 @@ export default async function handle(
   // viewer?.id || undefined
   // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing_operator
 
+  let resolvedDataroomViewId: string | undefined;
+  if (viewType === "DOCUMENT_VIEW" && dataroomViewId) {
+    const dataroomView = await prisma.view.findFirst({
+      where: {
+        id: dataroomViewId,
+        linkId,
+        dataroomId: dataroom.id,
+        viewType: "DATAROOM_VIEW",
+      },
+      select: { id: true },
+    });
+    if (!dataroomView) {
+      res.status(403).json({ message: "Invalid dataroom view." });
+      return;
+    }
+    resolvedDataroomViewId = dataroomView.id;
+  }
+
   if (viewType === "DATAROOM_VIEW") {
     try {
       console.time("create-view");
@@ -244,7 +306,7 @@ export default async function handle(
           linkId: linkId,
           viewerEmail: email,
           verified: isEmailVerified,
-          dataroomId: dataroomId,
+          dataroomId: dataroom.id,
           viewType: "DATAROOM_VIEW",
           viewerId: viewer?.id ?? undefined,
         },
@@ -272,15 +334,18 @@ export default async function handle(
   }
 
   try {
+    const document = dataroomDocument!.document;
+    const documentVersion = document.versions[0];
+
     console.time("create-view");
     const newView = await prisma.view.create({
       data: {
         linkId: linkId,
         viewerEmail: email,
-        documentId: documentId,
+        documentId: document.id,
         verified: isEmailVerified,
-        dataroomViewId: dataroomViewId,
-        dataroomId: dataroomId,
+        dataroomViewId: resolvedDataroomViewId,
+        dataroomId: dataroom.id,
         viewType: "DOCUMENT_VIEW",
         viewerId: viewer?.id ?? undefined,
       },
@@ -292,23 +357,12 @@ export default async function handle(
     // otherwise, check if notion document,
     // if notion, return recordMap from document version file
     // otherwise, return file from document version
-    let documentPages, documentVersion, recordMap;
-    if (hasPages) {
+    let documentPages, recordMap;
+    if (documentVersion.hasPages) {
       // get pages from document version
       console.time("get-pages");
-      documentPages = await prisma.documentPage.findMany({
-        where: { versionId: documentVersionId },
-        orderBy: { pageNumber: "asc" },
-        select: {
-          file: true,
-          storageType: true,
-          pageNumber: true,
-          embeddedLinks: true,
-        },
-      });
-
       documentPages = await Promise.all(
-        documentPages.map(async (page) => {
+        documentVersion.pages.map(async (page) => {
           const { storageType, ...otherPage } = page;
           return {
             ...otherPage,
@@ -321,20 +375,6 @@ export default async function handle(
     } else {
       // get file from document version
       console.time("get-file");
-      documentVersion = await prisma.documentVersion.findUnique({
-        where: { id: documentVersionId },
-        select: {
-          file: true,
-          storageType: true,
-          type: true,
-        },
-      });
-
-      if (!documentVersion) {
-        res.status(404).json({ message: "Document version not found." });
-        return;
-      }
-
       if (documentVersion.type === "notion") {
         let notionPageId = parsePageId(documentVersion.file, { uuid: false });
         if (!notionPageId) {

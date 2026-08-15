@@ -7,7 +7,6 @@ import slugify from "@sindresorhus/slugify";
 import { newId } from "@/lib/id-helper";
 import { log } from "@/lib/utils";
 import { errorhandler } from "@/lib/errorHandler";
-import { client } from "@/trigger";
 
 export default async function handle(
   req: NextApiRequest,
@@ -152,17 +151,6 @@ export default async function handle(
           },
         },
       });
-
-      // trigger `dataroom.new_document` event to notify existing viewers
-      // await client.sendEvent({
-      //   name: "dataroom.new_document",
-      //   payload: {
-      //     dataroomId: dataroomId,
-      //     dataroomDocumentId: document.id,
-      //     linkId: document.dataroom.links[0].id ?? "",
-      //     senderUserId: userId,
-      //   },
-      // });
 
       return res.status(201).json(document);
     } catch (error) {

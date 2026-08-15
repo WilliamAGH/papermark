@@ -2,22 +2,31 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 
 export default async function handler(
-  _req: NextApiRequest,
+  req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  res.setHeader("Cache-Control", "no-store");
+
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    return res.status(405).json({ status: "error" });
+  }
+
   try {
     await prisma.$queryRaw`SELECT 1`;
 
+    if (req.method === "HEAD") {
+      return res.status(200).end();
+    }
+
     return res.json({
       status: "ok",
-      message: "All systems operational",
     });
   } catch (err) {
-    console.error(err);
+    console.error("Database readiness check failed", err);
 
-    return res.status(500).json({
+    return res.status(503).json({
       status: "error",
-      message: (err as Error).message,
     });
   }
 }

@@ -43,8 +43,10 @@ const navigation = {
   ],
   social: [
     {
-      name: "GitHub",
-      href: "https://github.com/mfts/papermark",
+      name: "Source code",
+      href:
+        process.env.NEXT_PUBLIC_SOURCE_URL ??
+        "https://github.com/papermark/papermark",
       icon: () => <GitHubIcon className="h-6 w-6" aria-hidden="true" />,
     },
     {
@@ -173,7 +175,8 @@ export default function Footer() {
         </div>
         <div className="mt-16 border-t border-black/10 pt-4 sm:mt-20 lg:mt-24">
           <p className="text-sm leading-5 text-gray-500">
-            &copy; 2024 Papermark. All rights reserved.
+            &copy; 2024 Papermark. This service&apos;s modified AGPL source is
+            available from the Source code link above.
           </p>
         </div>
       </div>

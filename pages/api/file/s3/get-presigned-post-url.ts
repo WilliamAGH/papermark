@@ -10,7 +10,7 @@ import slugify from "@sindresorhus/slugify";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { ONE_HOUR, ONE_SECOND } from "@/lib/constants";
 
-const client = getS3Client();
+const client = getS3Client({ publicEndpoint: true });
 
 export default async function handler(
   req: NextApiRequest,

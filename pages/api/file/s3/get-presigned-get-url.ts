@@ -1,12 +1,14 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { getSignedUrl as getS3SignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getS3Client } from "@/lib/files/aws-client";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { ONE_HOUR, ONE_SECOND } from "@/lib/constants";
+import { getServerSession } from "next-auth/next";
 
-import { getSignedUrl as getCloudfrontSignedUrl } from "@aws-sdk/cloudfront-signer";
-
-const client = getS3Client();
+import { authOptions } from "../../auth/[...nextauth]";
+import {
+  assertTeamStorageKey,
+  signStoredObject,
+  StorageValidationError,
+} from "@/lib/files/s3-security";
+import { CustomUser } from "@/lib/types";
+import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
@@ -16,36 +18,59 @@ export default async function handler(
     return res.status(405).end("Method Not Allowed");
   }
 
-  const { key } = req.body as { key: string };
+  const session = await getServerSession(req, res, authOptions);
+  if (!session) {
+    return res.status(401).end("Unauthorized");
+  }
+
+  const { key, teamId, documentId, documentVersionId } = req.body as {
+    key?: string;
+    teamId?: string;
+    documentId?: string;
+    documentVersionId?: string;
+  };
+  if (!key || !teamId || !documentId) {
+    return res.status(400).json({ error: "Missing storage ownership fields" });
+  }
 
   try {
-    if (process.env.NEXT_PRIVATE_UPLOAD_DISTRIBUTION_DOMAIN) {
-      const distributionUrl = new URL(
-        key,
-        `${process.env.NEXT_PRIVATE_UPLOAD_DISTRIBUTION_DOMAIN}`,
-      );
-
-      const url = getCloudfrontSignedUrl({
-        url: distributionUrl.toString(),
-        keyPairId: `${process.env.NEXT_PRIVATE_UPLOAD_DISTRIBUTION_KEY_ID}`,
-        privateKey: `${process.env.NEXT_PRIVATE_UPLOAD_DISTRIBUTION_KEY_CONTENTS}`,
-        dateLessThan: new Date(Date.now() + ONE_HOUR).toISOString(),
-      });
-
-      return res.status(200).json({ url });
+    const safeKey = assertTeamStorageKey(key, teamId);
+    const document = await prisma.document.findFirst({
+      where: {
+        id: documentId,
+        teamId,
+        team: {
+          users: { some: { userId: (session.user as CustomUser).id } },
+        },
+      },
+      select: {
+        file: true,
+        versions: {
+          ...(documentVersionId ? { where: { id: documentVersionId } } : {}),
+          select: { id: true, file: true, pages: { select: { file: true } } },
+        },
+      },
+    });
+    if (!document) {
+      return res.status(403).end("Forbidden");
+    }
+    const versionOwnsKey = document.versions.some(
+      (version) =>
+        version.file === safeKey ||
+        version.pages.some((page) => page.file === safeKey),
+    );
+    const ownsKey = documentVersionId
+      ? versionOwnsKey
+      : document.file === safeKey || versionOwnsKey;
+    if (!ownsKey) {
+      return res.status(403).end("Forbidden");
     }
 
-    const getObjectCommand = new GetObjectCommand({
-      Bucket: process.env.NEXT_PRIVATE_UPLOAD_BUCKET,
-      Key: key,
-    });
-
-    const url = await getS3SignedUrl(client, getObjectCommand, {
-      expiresIn: ONE_HOUR / ONE_SECOND,
-    });
-
-    return res.status(200).json({ url });
+    return res.status(200).json({ url: await signStoredObject(safeKey) });
   } catch (error) {
-    return res.status(500).json({ error: "Internal server error" });
+    if (error instanceof StorageValidationError) {
+      return res.status(400).json({ error: error.message });
+    }
+    return res.status(500).json({ error: "Unable to sign stored file" });
   }
 }

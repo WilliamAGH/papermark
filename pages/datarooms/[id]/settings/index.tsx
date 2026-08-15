@@ -99,8 +99,7 @@ export default function DataroomBrandPage() {
     if (logo && logo.startsWith("data:")) {
       // Convert the data URL to a blob
       const blob = convertDataUrlToFile({ dataUrl: logo });
-      // Upload the blob to vercel storage
-      blobUrl = await uploadImage(blob);
+      blobUrl = await uploadImage(blob, teamInfo?.currentTeam?.id as string);
       setLogo(blobUrl);
     }
 
@@ -109,9 +108,11 @@ export default function DataroomBrandPage() {
     if (banner && banner.startsWith("data:")) {
       // Convert the data URL to a blob
       const blob = convertDataUrlToFile({ dataUrl: banner });
-      // Upload the blob to vercel storage
-      bannerBlobUrl = await uploadImage(blob);
-      setBanner(blobUrl);
+      bannerBlobUrl = await uploadImage(
+        blob,
+        teamInfo?.currentTeam?.id as string,
+      );
+      setBanner(bannerBlobUrl);
     }
 
     const data = {

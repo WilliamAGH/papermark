@@ -1,6 +1,5 @@
 import "@/styles/globals.css";
 import { Metadata } from "next";
-import PlausibleProvider from "next-plausible";
 import { Inter } from "next/font/google";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -47,12 +46,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        <PlausibleProvider
-          domain="papermark.io"
-          enabled={process.env.NEXT_PUBLIC_VERCEL_ENV === "production"}
-        />
-      </head>
       <body className={inter.className}>{children}</body>
     </html>
   );

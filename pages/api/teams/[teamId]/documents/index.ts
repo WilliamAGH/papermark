@@ -6,10 +6,12 @@ import { CustomUser } from "@/lib/types";
 import { getExtension, log } from "@/lib/utils";
 import { getTeamWithUsersAndDocument } from "@/lib/team/helper";
 import { errorhandler } from "@/lib/errorHandler";
-import { client } from "@/trigger";
 import notion from "@/lib/notion";
 import { parsePageId } from "notion-utils";
 import { DocumentStorageType } from "@prisma/client";
+import { processDocumentVersion } from "@/lib/documents/process-document-version";
+
+export const config = { maxDuration: 300 };
 
 export default async function handle(
   req: NextApiRequest,
@@ -97,6 +99,9 @@ export default async function handle(
       if (type === "notion") {
         try {
           const pageId = parsePageId(fileUrl, { uuid: false });
+          if (!pageId) {
+            throw new Error("Invalid Notion page URL");
+          }
           // if the page isn't accessible then end the process here.
           await notion.getPage(pageId);
         } catch (error) {
@@ -151,16 +156,24 @@ export default async function handle(
 
       // skip triggering convert-pdf-to-image job for "notion" documents
       if (type !== "notion") {
-        // trigger document uploaded event to trigger convert-pdf-to-image job
-        await client.sendEvent({
-          id: document.versions[0].id, // unique eventId for the run
-          name: "document.uploaded",
-          payload: {
+        try {
+          const processed = await processDocumentVersion({
             documentVersionId: document.versions[0].id,
-            teamId: teamId,
             documentId: document.id,
-          },
-        });
+            teamId,
+          });
+          document.numPages = processed.pageCount;
+          document.versions[0].numPages = processed.pageCount;
+          document.versions[0].hasPages = true;
+          await Promise.allSettled(
+            document.links.map((link) => res.revalidate(`/view/${link.id}`)),
+          );
+        } catch (processingError) {
+          await prisma.document.delete({ where: { id: document.id } });
+          throw new Error(
+            `Document processing failed: ${(processingError as Error).message}`,
+          );
+        }
       }
 
       return res.status(201).json(document);

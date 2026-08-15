@@ -4,7 +4,10 @@ import prisma from "@/lib/prisma";
 import { CustomUser } from "@/lib/types";
 import { authOptions } from "../../auth/[...nextauth]";
 import { errorhandler } from "@/lib/errorHandler";
-import { del } from "@vercel/blob";
+import {
+  deleteOwnedObject,
+  publicImageKeyFromUrl,
+} from "@/lib/files/s3-security";
 
 export default async function handle(
   req: NextApiRequest,
@@ -102,8 +105,10 @@ export default async function handle(
     });
 
     if (brand && brand.logo) {
-      // delete the logo from vercel blob
-      await del(brand.logo);
+      const key = publicImageKeyFromUrl(brand.logo, teamId);
+      if (key) {
+        await deleteOwnedObject(key, teamId);
+      }
     }
 
     // delete the branding from database

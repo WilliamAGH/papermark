@@ -25,9 +25,10 @@ import Navbar from "@/components/web/navbar";
 export default async function InvestorPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const investor = await getInvestor(params.slug);
+  const { slug } = await params;
+  const investor = await getInvestor(slug);
   if (!investor) return notFound();
 
   return (

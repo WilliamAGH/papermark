@@ -23,12 +23,13 @@ export async function generateStaticParams() {
 export const generateMetadata = async ({
   params,
 }: {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 }): Promise<Metadata> => {
+  const { slug } = await params;
   const article = (await getHelpArticles()).find(
-    (article) => article?.data.slug === params.slug,
+    (article) => article?.data.slug === slug,
   );
   const { title, summary: description, image } = article?.data || {};
 
@@ -42,9 +43,10 @@ export const generateMetadata = async ({
 export default async function BlogPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const article = await getHelpArticle(params.slug);
+  const { slug } = await params;
+  const article = await getHelpArticle(slug);
   if (!article) return notFound();
 
   // const category = article.data.categories ? article.data.categories[0] : "";

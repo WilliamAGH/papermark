@@ -1,57 +1,92 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import type { NextApiResponse, NextApiRequest } from "next";
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../auth/[...nextauth]";
+import prisma from "@/lib/prisma";
+import {
+  MAX_PUBLIC_IMAGE_BYTES,
+  publicImageUrl,
+  StorageValidationError,
+  storePublicImage,
+} from "@/lib/files/s3-security";
+import { authOptions } from "@/pages/api/auth/[...nextauth]";
 import { CustomUser } from "@/lib/types";
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+async function readImage(req: NextApiRequest): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.byteLength;
+    if (size > MAX_PUBLIC_IMAGE_BYTES) {
+      throw new StorageValidationError(
+        "Public image size is outside allowed bounds",
+      );
+    }
+    chunks.push(bytes);
+  }
+
+  return Buffer.concat(chunks);
+}
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  const body = req.body as HandleUploadBody;
+  if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
+
+  const session = await getServerSession(req, res, authOptions);
+  if (!session) {
+    return res.status(401).end("Unauthorized");
+  }
+
+  const teamId = typeof req.query.teamId === "string" ? req.query.teamId : "";
+  const userId = (session.user as CustomUser).id;
+  if (!teamId || !userId) {
+    return res.status(400).json({ error: "A team is required" });
+  }
 
   try {
-    const jsonResponse = await handleUpload({
-      body,
-      request: req,
-      onBeforeGenerateToken: async (pathname: string) => {
-        // Generate a client token for the browser to upload the file
-
-        const session = await getServerSession(req, res, authOptions);
-        if (!session) {
-          res.status(401).end("Unauthorized");
-          throw new Error("Unauthorized");
-        }
-
-        return {
-          allowedContentTypes: ["image/png", "image/jpeg"],
-          maximumSizeInBytes: 5 * 1024 * 1024, // 5 MB
-          metadata: JSON.stringify({
-            // optional, sent to your server on upload completion
-            userId: (session.user as CustomUser).id,
-          }),
-        };
+    const team = await prisma.team.findFirst({
+      where: {
+        id: teamId,
+        users: {
+          some: {
+            userId,
+          },
+        },
       },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        // Get notified of browser upload completion
-        // ⚠️ This will not work on `localhost` websites,
-        // Use ngrok or similar to get the full upload flow
-
-        console.log("blob upload completed", blob, tokenPayload);
-
-        try {
-          // Run any logic after the file upload completed
-          // const { userId } = JSON.parse(tokenPayload);
-          // await db.update({ avatar: blob.url, userId });
-        } catch (error) {
-          // throw new Error("Could not update user");
-        }
-      },
+      select: { id: true },
     });
+    if (!team) {
+      return res.status(403).end("Unauthorized to access this team");
+    }
 
-    return res.status(200).json(jsonResponse);
+    const contentType = req.headers["content-type"];
+    if (typeof contentType !== "string") {
+      return res.status(400).json({ error: "An image MIME type is required" });
+    }
+
+    const key = await storePublicImage({
+      teamId,
+      contentType,
+      image: await readImage(req),
+    });
+    return res.status(201).json({ url: publicImageUrl(key) });
   } catch (error) {
-    // The webhook will retry 5 times waiting for a 200
-    return res.status(400).json({ error: (error as Error).message });
+    if (error instanceof StorageValidationError) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    console.error("Failed to upload public image", error);
+    return res.status(500).json({ error: "Unable to upload image" });
   }
 }

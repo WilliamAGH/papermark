@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { limiter, receiver } from "@/lib/cron";
+import { limiter } from "@/lib/cron";
+import { hasValidInternalApiKey } from "@/lib/api/internal-api-auth";
 import prisma from "@/lib/prisma";
 import { calculateDaysLeft, log } from "@/lib/utils";
 import { sendTrialEndReminderEmail } from "@/lib/emails/send-trial-end-reminder";
@@ -15,15 +16,8 @@ import { sendTrialEndFinalReminderEmail } from "@/lib/emails/send-trial-end-fina
 export const maxDuration = 300; // 5 minutes in seconds
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  if (process.env.VERCEL === "1") {
-    const isValid = await receiver.verify({
-      signature: req.headers.get("Upstash-Signature") || "",
-      body: JSON.stringify(body),
-    });
-    if (!isValid) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  if (!hasValidInternalApiKey(req)) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
   try {

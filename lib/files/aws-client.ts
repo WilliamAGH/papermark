@@ -1,7 +1,13 @@
 import { S3Client } from "@aws-sdk/client-s3";
 
-export const getS3Client = () => {
+export const getS3Client = ({
+  publicEndpoint = false,
+}: { publicEndpoint?: boolean } = {}) => {
   const NEXT_PUBLIC_UPLOAD_TRANSPORT = process.env.NEXT_PUBLIC_UPLOAD_TRANSPORT;
+  const storageEndpoint = publicEndpoint
+    ? process.env.PAPERMARK_STORAGE_ENDPOINT
+    : process.env.NEXT_PRIVATE_UPLOAD_ENDPOINT ||
+      process.env.PAPERMARK_STORAGE_ENDPOINT;
 
   if (NEXT_PUBLIC_UPLOAD_TRANSPORT !== "s3") {
     throw new Error("Invalid upload transport");
@@ -12,7 +18,8 @@ export const getS3Client = () => {
     process.env.NEXT_PRIVATE_UPLOAD_SECRET_ACCESS_KEY;
 
   return new S3Client({
-    endpoint: process.env.NEXT_PRIVATE_UPLOAD_ENDPOINT || undefined,
+    endpoint: storageEndpoint || undefined,
+    forcePathStyle: Boolean(storageEndpoint),
     region: process.env.NEXT_PRIVATE_UPLOAD_REGION || "eu-central-1",
     credentials: hasCredentials
       ? {

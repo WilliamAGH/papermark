@@ -3,8 +3,11 @@ import { getServerSession } from "next-auth";
 import prisma from "@/lib/prisma";
 import { CustomUser } from "@/lib/types";
 import { errorhandler } from "@/lib/errorHandler";
-import { del } from "@vercel/blob";
 import { authOptions } from "@/pages/api/auth/[...nextauth]";
+import {
+  deleteOwnedObject,
+  publicImageKeyFromUrl,
+} from "@/lib/files/s3-security";
 
 export default async function handle(
   req: NextApiRequest,
@@ -118,13 +121,15 @@ export default async function handle(
       select: { id: true, logo: true, banner: true },
     });
 
-    if (brand && brand.logo) {
-      // delete the logo from vercel blob
-      await del(brand.logo);
-    }
-    if (brand && brand.banner) {
-      // delete the logo from vercel blob
-      await del(brand.banner);
+    for (const imageUrl of [brand?.logo, brand?.banner]) {
+      if (!imageUrl) {
+        continue;
+      }
+
+      const key = publicImageKeyFromUrl(imageUrl, teamId);
+      if (key) {
+        await deleteOwnedObject(key, teamId);
+      }
     }
 
     // delete the branding from database
