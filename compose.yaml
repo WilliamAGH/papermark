@@ -21,9 +21,9 @@ services:
       NEXT_PUBLIC_BASE_URL: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
       NEXT_PUBLIC_ROOT_DOMAIN: ${PAPERMARK_PUBLIC_HOST:?Set PAPERMARK_PUBLIC_HOST}
       NEXT_PUBLIC_SOURCE_URL: ${PAPERMARK_SOURCE_URL:?Set PAPERMARK_SOURCE_URL}
-      POSTGRES_PRISMA_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
-      POSTGRES_PRISMA_URL_NON_POOLING: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
-      POSTGRES_PRISMA_SHADOW_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
+      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?Set POSTGRES_PRISMA_URL}
+      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?Set POSTGRES_PRISMA_URL_NON_POOLING}
+      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?Set POSTGRES_PRISMA_SHADOW_URL}
       NEXT_PUBLIC_UPLOAD_TRANSPORT: s3
       PAPERMARK_STORAGE_ENDPOINT: ${PAPERMARK_STORAGE_ENDPOINT:?Set PAPERMARK_STORAGE_ENDPOINT}
       NEXT_PRIVATE_UPLOAD_ENDPOINT: http://minio:9000
@@ -77,9 +77,9 @@ services:
       target: migrator
     restart: 'no'
     environment:
-      POSTGRES_PRISMA_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
-      POSTGRES_PRISMA_URL_NON_POOLING: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
-      POSTGRES_PRISMA_SHADOW_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
+      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?Set POSTGRES_PRISMA_URL}
+      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?Set POSTGRES_PRISMA_URL_NON_POOLING}
+      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?Set POSTGRES_PRISMA_SHADOW_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -306,7 +306,3 @@ configs:
       ,\n        \"s3:ListMultipartUploadParts\",\n        \"s3:PutObject\"\n    \
       \  ],\n      \"Resource\": [\"arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}/*\"\
       ]\n    }\n  ]\n}\n"
-networks:
-  default:
-    external: true
-    name: dokploy-network
