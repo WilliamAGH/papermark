@@ -10,7 +10,7 @@ services:
         PAPERMARK_STORAGE_ENDPOINT: ${PAPERMARK_STORAGE_ENDPOINT:?Set PAPERMARK_STORAGE_ENDPOINT}
     restart: unless-stopped
     expose:
-      - "3000"
+    - '3000'
     environment:
       NODE_ENV: production
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET}
@@ -21,9 +21,9 @@ services:
       NEXT_PUBLIC_BASE_URL: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
       NEXT_PUBLIC_ROOT_DOMAIN: ${PAPERMARK_PUBLIC_HOST:?Set PAPERMARK_PUBLIC_HOST}
       NEXT_PUBLIC_SOURCE_URL: ${PAPERMARK_SOURCE_URL:?Set PAPERMARK_SOURCE_URL}
-      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?Set POSTGRES_PRISMA_URL}
-      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?Set POSTGRES_PRISMA_URL_NON_POOLING}
-      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?Set POSTGRES_PRISMA_SHADOW_URL}
+      POSTGRES_PRISMA_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
+      POSTGRES_PRISMA_URL_NON_POOLING: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
+      POSTGRES_PRISMA_SHADOW_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
       NEXT_PUBLIC_UPLOAD_TRANSPORT: s3
       PAPERMARK_STORAGE_ENDPOINT: ${PAPERMARK_STORAGE_ENDPOINT:?Set PAPERMARK_STORAGE_ENDPOINT}
       NEXT_PRIVATE_UPLOAD_ENDPOINT: http://minio:9000
@@ -33,7 +33,8 @@ services:
       NEXT_PRIVATE_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
       UPSTASH_REDIS_REST_URL: http://redis-http:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN:?Set SRH_TOKEN}
-      NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY: ${NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY:?Set NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY}
+      NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY: ${NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY:?Set
+        NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY}
       REVALIDATE_TOKEN: ${REVALIDATE_TOKEN:?Set REVALIDATE_TOKEN}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -49,28 +50,52 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-        - CMD
-        - node
-        - -e
-        - fetch('http://127.0.0.1:3000/api/health').then(response=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:3000/api/health').then(response=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
-
+    cpus: '1'
+    mem_reservation: 512m
+    mem_limit: 2g
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '1'
+          memory: 512m
+        limits:
+          cpus: '1'
+          memory: 2g
+          pids: 256
   migrate:
     build:
       context: .
       target: migrator
-    restart: "no"
+    restart: 'no'
     environment:
-      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?Set POSTGRES_PRISMA_URL}
-      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?Set POSTGRES_PRISMA_URL_NON_POOLING}
-      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?Set POSTGRES_PRISMA_SHADOW_URL}
+      POSTGRES_PRISMA_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
+      POSTGRES_PRISMA_URL_NON_POOLING: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
+      POSTGRES_PRISMA_SHADOW_URL: postgresql://papermark:$${POSTGRES_PASSWORD}@postgres:5432/papermark?schema=public
     depends_on:
       postgres:
         condition: service_healthy
-
+    cpus: '1'
+    mem_reservation: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '1'
+          memory: 128m
+        limits:
+          cpus: '1'
+          memory: 512m
+          pids: 256
   postgres:
     image: postgres:16.15-bookworm
     restart: unless-stopped
@@ -79,36 +104,60 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-papermark}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+    - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test:
-        - CMD-SHELL
-        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      - CMD-SHELL
+      - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
-
+    cpus: '0.5'
+    mem_reservation: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.5'
+          memory: 128m
+        limits:
+          cpus: '0.5'
+          memory: 512m
+          pids: 256
   redis:
     image: redis:7.4.10-bookworm
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
     command:
-      - /bin/sh
-      - -c
-      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    - /bin/sh
+    - -c
+    - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
     volumes:
-      - redis-data:/data
+    - redis-data:/data
     healthcheck:
       test:
-        - CMD-SHELL
-        - redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG
+      - CMD-SHELL
+      - redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 5s
-
+    cpus: '0.5'
+    mem_reservation: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.5'
+          memory: 128m
+        limits:
+          cpus: '0.5'
+          memory: 512m
+          pids: 256
   redis-http:
     image: hiett/serverless-redis-http:0.0.10
     restart: unless-stopped
@@ -116,71 +165,107 @@ services:
       SRH_MODE: env
       SRH_TOKEN: ${SRH_TOKEN:?Set SRH_TOKEN}
       SRH_CONNECTION_STRING: redis://default:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379
-      SRH_MAX_CONNECTIONS: "10"
+      SRH_MAX_CONNECTIONS: '10'
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
       test:
-        - CMD-SHELL
-        - >-
-          wget -qO- --header="Authorization: Bearer $$SRH_TOKEN"
-          --header="Content-Type: application/json" --post-data='["PING"]'
-          http://127.0.0.1:80 | grep -q PONG
+      - CMD-SHELL
+      - 'wget -qO- --header="Authorization: Bearer $${SRH_TOKEN}" --header="Content-Type:
+        application/json" --post-data=''{"_json":["PING"]}'' http://127.0.0.1:80 |
+        grep -q PONG'
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
-
+    cpus: '0.5'
+    mem_reservation: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.5'
+          memory: 128m
+        limits:
+          cpus: '0.5'
+          memory: 512m
+          pids: 256
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command:
-      - server
-      - /data
-      - --console-address
-      - :9001
+    - server
+    - /data
+    - --console-address
+    - :9001
     expose:
-      - "9000"
+    - '9000'
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
       MINIO_REGION_NAME: ${MINIO_REGION_NAME:-us-east-1}
       MINIO_API_CORS_ALLOW_ORIGIN: ${PAPERMARK_PUBLIC_URL:?Set PAPERMARK_PUBLIC_URL}
     volumes:
-      - minio-data:/data
+    - minio-data:/data
     healthcheck:
       test:
-        - CMD
-        - curl
-        - -f
-        - http://127.0.0.1:9000/minio/health/live
+      - CMD
+      - curl
+      - -f
+      - http://127.0.0.1:9000/minio/health/live
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 15s
-
+    cpus: '0.5'
+    mem_reservation: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.5'
+          memory: 128m
+        limits:
+          cpus: '0.5'
+          memory: 512m
+          pids: 256
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    restart: "no"
+    restart: 'no'
     entrypoint:
-      - /bin/sh
-      - -c
+    - /bin/sh
+    - -c
     command:
-      - |
-        set -eu
-        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
-        mc ready local >/dev/null
-        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
-        mc anonymous set none "local/$${MINIO_BUCKET}"
-        # Both commands reconcile an existing name, including rotated credentials
-        # and policy content, so a retained MinIO volume is safe to initialize again.
-        mc admin user add local "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}"
-        mc admin policy create local papermark /etc/minio/papermark-policy.json
-        mc admin policy attach local papermark --user "$${MINIO_ACCESS_KEY}"
-        mc stat "local/$${MINIO_BUCKET}" >/dev/null
-        mc admin user info local "$${MINIO_ACCESS_KEY}" >/dev/null
-        mc admin policy info local papermark >/dev/null
+    - 'set -eu
+
+      mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+
+      mc ready local >/dev/null
+
+      mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+
+      mc anonymous set none "local/$${MINIO_BUCKET}"
+
+      # Both commands reconcile an existing name, including rotated credentials
+
+      # and policy content, so a retained MinIO volume is safe to initialize again.
+
+      mc admin user add local "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}"
+
+      mc admin policy create local papermark /etc/minio/papermark-policy.json
+
+      mc admin policy attach local papermark --user "$${MINIO_ACCESS_KEY}"
+
+      mc stat "local/$${MINIO_BUCKET}" >/dev/null
+
+      mc admin user info local "$${MINIO_ACCESS_KEY}" >/dev/null
+
+      mc admin policy info local papermark >/dev/null
+
+      '
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
@@ -188,42 +273,40 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET:?Set MINIO_BUCKET}
     configs:
-      - source: minio-policy
-        target: /etc/minio/papermark-policy.json
+    - source: minio-policy
+      target: /etc/minio/papermark-policy.json
     depends_on:
       minio:
         condition: service_healthy
-
+    cpus: '0.5'
+    mem_reservation: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.5'
+          memory: 128m
+        limits:
+          cpus: '0.5'
+          memory: 512m
+          pids: 256
 volumes:
-  postgres-data:
-  redis-data:
-  minio-data:
-
+  postgres-data: null
+  redis-data: null
+  minio-data: null
 configs:
   minio-policy:
-    content: |
-      {
-        "Version": "2012-10-17",
-        "Statement": [
-          {
-            "Effect": "Allow",
-            "Action": [
-              "s3:GetBucketLocation",
-              "s3:ListBucket",
-              "s3:ListBucketMultipartUploads"
-            ],
-            "Resource": ["arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}"]
-          },
-          {
-            "Effect": "Allow",
-            "Action": [
-              "s3:AbortMultipartUpload",
-              "s3:DeleteObject",
-              "s3:GetObject",
-              "s3:ListMultipartUploadParts",
-              "s3:PutObject"
-            ],
-            "Resource": ["arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}/*"]
-          }
-        ]
-      }
+    content: "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [\n    {\n     \
+      \ \"Effect\": \"Allow\",\n      \"Action\": [\n        \"s3:GetBucketLocation\"\
+      ,\n        \"s3:ListBucket\",\n        \"s3:ListBucketMultipartUploads\"\n \
+      \     ],\n      \"Resource\": [\"arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}\"\
+      ]\n    },\n    {\n      \"Effect\": \"Allow\",\n      \"Action\": [\n      \
+      \  \"s3:AbortMultipartUpload\",\n        \"s3:DeleteObject\",\n        \"s3:GetObject\"\
+      ,\n        \"s3:ListMultipartUploadParts\",\n        \"s3:PutObject\"\n    \
+      \  ],\n      \"Resource\": [\"arn:aws:s3:::${MINIO_BUCKET:?Set MINIO_BUCKET}/*\"\
+      ]\n    }\n  ]\n}\n"
+networks:
+  default:
+    external: true
+    name: dokploy-network
