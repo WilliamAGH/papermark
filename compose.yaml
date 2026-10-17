@@ -233,7 +233,9 @@ services:
           memory: 512m
           pids: 256
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    # MinIO deleted its Docker Hub mc repository; the server image ships the same
+    # mc release (RELEASE.2025-08-13T08-35-41Z) at /usr/bin/mc.
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: 'no'
     entrypoint:
     - /bin/sh
