@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:22.20.0-bookworm-slim
+ARG NODE_IMAGE=node:24.22.1-bookworm-slim
 
 FROM ${NODE_IMAGE} AS base
 WORKDIR /app
